@@ -31,6 +31,10 @@ class IterativePipeline(BasicPipeline):
             retrieval_results = self.retriever.batch_search(input_query)
             dataset.update_output(f"retrieval_result_iter_{iter_idx}", retrieval_results)
 
+            ## compute unfairness distribution
+            # each iteration's unfairness distribution could change
+            self.compute_unfairness_distribution(dataset, retrieval_results)
+
             # retrieval-augmented generation
             # input_prompts = self.build_prompt(questions, retrieval_results)
             input_prompts = [
