@@ -89,7 +89,9 @@ class LLMLinguaRefiner(BaseRefiner):
                 item_output = self.refiner.compress_prompt(
                     docs, instruction="", question=question, **self.compress_config
                 )
+            #### item_output has a bug, it adds original question after compressed docs (from retrieval)
             output.append(item_output["compressed_prompt"])
+            raise ValueError("stop here")
         return output
 
 

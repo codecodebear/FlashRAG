@@ -94,7 +94,7 @@ def llmlingua(args):
         Official repo: https://github.com/microsoft/LLMLingua
     """
     refiner_name = "longllmlingua"  #
-    refiner_model_path = "model/llama-2-7b-hf"
+    refiner_model_path = "/workspace/models/Llama-2-7b-hf"
 
     config_dict = {
         "refiner_name": refiner_name,
@@ -135,9 +135,9 @@ def recomp(args):
     # ###### Specified parameters ######
     refiner_name = "recomp-abstractive"  # recomp-extractive
     model_dict = {
-        "nq": "model/recomp_nq_abs",
-        "triviaqa": "model/recomp_tqa_abs",
-        "hotpotqa": "model/recomp_hotpotqa_abs",
+        "nq": "/workspace/models/recomp/nq_abstractive_compressor",
+        "triviaqa": "/workspace/models/recomp/tqa_abstractive_compressor",
+        "hotpotqa": "/workspace/models/recomp/hotpotqa_abstractive",
     }
 
     refiner_model_path = model_dict.get(args.dataset_name, None)
@@ -189,7 +189,7 @@ def sc(args):
             ```
     """
     refiner_name = "selective-context"
-    refiner_model_path = "model/gpt2"
+    refiner_model_path = "/workspace/models/gpt2"
 
     config_dict = {
         "refiner_name": refiner_name,
@@ -219,8 +219,8 @@ def retrobust(args):
         Official repo: https://github.com/oriyor/ret-robust
     """
     model_dict = {
-        "nq": "model/llama-2-13b-peft-nq-retrobust",
-        "2wiki": "model/llama-2-13b-peft-2wikihop-retrobust",
+        "nq": "/workspace/models/ret-robust/llama-2-13b-peft-nq-retrobust",
+        "2wiki": "/workspace/models/ret-robust/llama-2-13b-peft-2wikihop-retrobust",
     }
     if args.dataset_name in ["nq", "triviaqa", "popqa", "web_questions"]:
         lora_path = model_dict["nq"]
@@ -311,7 +311,7 @@ def skr(args):
 
     """
     judger_name = "skr"
-    model_path = "model/sup-simcse-bert-base-uncased"
+    model_path = "/workspace/embeddings/sup-simcse-bert-base-uncased"
     training_data_path = "./sample_data/skr_training.json"
 
     config_dict = {

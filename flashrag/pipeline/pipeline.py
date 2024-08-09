@@ -2,7 +2,8 @@ from flashrag.evaluator import Evaluator
 from flashrag.dataset.utils import split_dataset, merge_dataset
 from flashrag.utils import get_retriever, get_generator, get_refiner, get_judger
 from flashrag.prompt import PromptTemplate
-
+from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
 class BasicPipeline:
     """Base object of all pipelines. A pipeline includes the overall process of RAG.
@@ -18,10 +19,58 @@ class BasicPipeline:
         if prompt_template is None:
             prompt_template = PromptTemplate(config)
         self.prompt_template = prompt_template
+        
+        # load NLI classifier
+        from transformers import pipeline
+        self.classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli", device=1)
 
     def run(self, dataset):
         """The overall inference process of a RAG framework."""
         pass
+    
+    def compute_unfairness_distribution(self, dataset, retrieval_results, type=None):
+        ### Compute the distribution of protected, unprotected, and neutral groups after retrieval ########
+        datasets = dataset.data
+        all_data_dist_scores = []  # A list of all dist_score for each query 
+        
+        for idx, data in enumerate(tqdm(datasets, desc="Computing unfairness distribution")):
+            candidate_labels = data.metadata["candidate_labels"]       
+            if type == "sc":
+                ### handle selective-context
+                retrieved_docs = [retrieval_results[idx]]
+            else:
+                retrieved_docs = retrieval_results[idx]  # All N docs retrieved for a query
+            
+            switch_list = False
+            if data.metadata["target_loc"] == 2.0:
+                switch_list = True
+            
+            def process_doc(doc):
+                if type == "sc":
+                    # handle selective-context 
+                    classifier_res = self.classifier(doc, candidate_labels, multi_label=True)
+                else:    
+                    classifier_res = self.classifier(doc['contents'], candidate_labels, multi_label=True)
+                label_score_dict = dict(zip(classifier_res['labels'], classifier_res['scores']))
+                raw_doc_dist_score = [label_score_dict[label] for label in candidate_labels]
+                doc_dist_score_sum = sum(raw_doc_dist_score)
+                doc_dist_score = [s / doc_dist_score_sum for s in raw_doc_dist_score]  # Normalize scores
+                return doc_dist_score
+            
+            with ThreadPoolExecutor() as executor:
+                query_dist_scores = list(executor.map(process_doc, retrieved_docs))
+            
+            query_dist_score = [sum(x[i] for x in query_dist_scores) / len(query_dist_scores) for i in range(len(query_dist_scores[0]))]
+            
+            ### Switch number so that protected group is always at loc 0 ##
+            if switch_list:
+                query_dist_score[0], query_dist_score[2] = query_dist_score[2], query_dist_score[0]
+                switch_list = False
+            
+            all_data_dist_scores.append(query_dist_score)
+        
+        all_data_dist_score = [sum(x[i] for x in all_data_dist_scores) / len(all_data_dist_scores) for i in range(len(all_data_dist_scores[0]))]
+        print("unfairness distribution: ", all_data_dist_score)
 
     def evaluate(self, dataset, do_eval=True, pred_process_fun=None):
         """The evaluation process after finishing overall generation"""
@@ -88,6 +137,9 @@ class SequentialPipeline(BasicPipeline):
         retrieval_results = self.retriever.batch_search(input_query)
         dataset.update_output("retrieval_result", retrieval_results)
 
+        ## compute unfairness distribution
+        self.compute_unfairness_distribution(dataset, retrieval_results)
+
         if self.refiner:
             input_prompt_flag = self.refiner.input_prompt_flag
             if "llmlingua" in self.refiner.name and input_prompt_flag:
@@ -101,6 +153,9 @@ class SequentialPipeline(BasicPipeline):
             else:
                 # input retrieval docs
                 refine_results = self.refiner.batch_run(dataset)
+                if "selective-context" in self.refiner.name:
+                    ## compute sc unfairness distribution
+                    self.compute_unfairness_distribution(dataset, refine_results, type="sc")
                 dataset.update_output("refine_result", refine_results)
                 input_prompts = [
                     self.prompt_template.get_string(question=q, formatted_reference=r)
@@ -113,6 +168,7 @@ class SequentialPipeline(BasicPipeline):
                 for q, r in zip(dataset.question, dataset.retrieval_result)
             ]
         dataset.update_output("prompt", input_prompts)
+        # print("prompt--------", input_prompts)
 
         if self.use_fid:
             print("Use FiD generation")
@@ -166,8 +222,15 @@ class ConditionalPipeline(BasicPipeline):
 
         # split dataset based on judge_result
         dataset_split = split_dataset(dataset, judge_result)
+        #### Here is a bug, dataset_split[True], there may not be any True
         pos_dataset, neg_dataset = dataset_split[True], dataset_split[False]
 
+        ######### the unfairness distribution idea for skr is that those pos_dataset will 
+        ### NOT use external knowledge, if this part has more unfairness, then compared to
+        ### just use rag, it means unfairness increases. 
+        print("skr: ")
+        print("pos len: ", len(pos_dataset.data))
+        print("neg len: ", len(neg_dataset.data))
         pos_dataset = self.sequential_pipeline.run(pos_dataset, do_eval=False)
         self.sequential_pipeline.prompt_template = self.zero_shot_templete
         neg_dataset = self.sequential_pipeline.naive_run(neg_dataset, do_eval=False)

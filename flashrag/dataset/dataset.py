@@ -18,6 +18,10 @@ class Item:
         self.choices = item_dict.get("choices", [])
         self.metadata = item_dict.get("metadata", {})
         self.output = item_dict.get("output", {})
+    
+    # for debugging, not needed
+    def __str__(self):
+        return f"Data(id: {self.id}, question: {self.question}, golden_answers: {self.golden_answers}, choices: {self.choices}, metadata: {self.metadata})"
 
     def update_output(self, key, value):
         r"""Update the output dict and keep a key in self.output can be used as an attribute."""
